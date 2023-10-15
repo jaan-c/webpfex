@@ -70,12 +70,16 @@ func ConvertWebpToMp4(webp string, out string) error {
 	frameDuration := info.FrameInfos[0].Duration
 	frameRate := int(1000 / frameDuration.Milliseconds())
 
-	cmd := exec.Command("ffmpeg",
+	cmd := exec.Command(
+		"ffmpeg",
 		"-framerate", strconv.Itoa(frameRate),
 		"-pattern_type", "glob",
 		"-i", path.Join(frameDir, "*.png"),
+		"-vf", "scale=-2:1080",
 		"-c:v", "libx264",
 		"-pix_fmt", "yuv420p",
+		"-crf", "18",
+		"-b:v", "5M",
 		out,
 	)
 	var stderr bytes.Buffer

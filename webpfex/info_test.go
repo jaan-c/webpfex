@@ -6,86 +6,74 @@ import (
 	"webpfex/canvas"
 )
 
-func TestParseAWebpMetadata(t *testing.T) {
-	stdout := `Canvas size: 400 x 400
-Features present: animation transparency
-Background color : 0xFF000000  Loop Count : 0
-Number of frames: 12
+const AWEBP_INFO_DUMMY = `Canvas size: 640 x 640
+Features present: animation EXIF metadata transparency
+Background color : 0xFFFFFFFF  Loop Count : 0
+Number of frames: 8
 No.: width height alpha x_offset y_offset duration   dispose blend image_size  compression
-  1:   400   400    no        0        0       70       none    no       5178    lossless
-  2:   400   400   yes        0        0       70       none   yes       1386    lossless
-  3:   400   400   yes        0        0       70       none   yes       1472    lossless
-  4:   400   394   yes        0        6       70       none   yes       3212    lossless
-  5:   371   394   yes        0        6       70       none   yes       1888    lossless
-  6:   394   382   yes        6        6       70       none   yes       3346    lossless
-  7:   400   388   yes        0        0       70       none   yes       3786    lossless
-  8:   394   383   yes        0        0       70       none   yes       1858    lossless
-  9:   394   394   yes        0        6       70       none   yes       3794    lossless
- 10:   372   394   yes       22        6       70       none   yes       3458    lossless
- 11:   400   400    no        0        0       70       none    no       5270    lossless
- 12:   320   382   yes        0        6       70       none   yes       2506    lossless
+  1:   640   640    no        0        0       40       none    no      22710       lossy
+  2:   640   577   yes        0       28       40       none   yes      25074       lossy
+  3:   640   574   yes        0       28       80       none   yes      24066       lossy
+  4:   640   570   yes        0       32       40       none   yes      25690       lossy
+  5:   640   573   yes        0       32       40       none   yes      23262       lossy
+  6:   640   640    no        0        0       40       none    no      23344       lossy
+  7:   640   576   yes        0       26       80       none   yes      25570       lossy
+  8:   640   579   yes        0       26       40       none   yes      23316       lossy
+Size of the EXIF metadata: 34
 `
-	var width uint32 = 400
-	var height uint32 = 400
-	backgroundColor := canvas.MakeColor(4278190080)
-	var frameCount uint32 = 12
 
-	info, err := ParseAWebpInfo(stdout)
+func TestParseAWebpInfoCanvasSize(t *testing.T) {
+	width, height, err := parseAWebpInfoCanvasSize(AWEBP_INFO_DUMMY)
+	var expectedWidth uint32 = 640
+	var expectedHeight uint32 = 640
+
+	if width != expectedWidth {
+		t.Errorf("Expecting %d got %d", width, expectedWidth)
+	}
+	if height != expectedHeight {
+		t.Errorf("Expecting %d got %d", height, expectedHeight)
+	}
 	if err != nil {
-		t.Error(err.Error())
-	}
-	if info.Width != width {
-		t.Errorf("Expecting %d, got %d", width, info.Width)
-	}
-	if info.Height != height {
-		t.Errorf("Expecting %d, got %d", height, info.Height)
-	}
-	if info.BackgroundColor != backgroundColor {
-		t.Errorf("Expecting %q, got %q", backgroundColor, info.BackgroundColor)
-	}
-	if info.FrameCount != frameCount {
-		t.Errorf("Expecting %d, got %d", frameCount, info.FrameCount)
+		t.Errorf("Unexpected error: %v", err)
 	}
 }
 
-func TestParseAWebpFrameMetadata(t *testing.T) {
-	//       No.: width height alpha x_offset y_offset duration   dispose blend   image_size  compression
-	line := "2:   450   400    no        12        14       70       none    yes       5178    lossless"
-	var number uint32 = 2
-	var width uint32 = 450
-	var height uint32 = 400
-	alpha := false
-	var xOffset uint32 = 12
-	var yOffset uint32 = 14
-	duration := 70 * time.Millisecond
-	var blend bool = true
+func TestParseAWebpInfoBackgroundColor(t *testing.T) {
+	backgroundColor, err := parseAWebpInfoBackgroundColor(AWEBP_INFO_DUMMY)
+	expectedBackgroundColor := canvas.MakeColor(0xFFFFFFFF)
 
-	meta, err := ParseAWebpFrameInfo(line)
+	if backgroundColor != expectedBackgroundColor {
+		t.Errorf("Expecting %X got %X",
+			backgroundColor.Value(), expectedBackgroundColor.Value())
+	}
 	if err != nil {
-		t.Error(err.Error())
+		t.Errorf("Unexpected error: %v", err)
 	}
-	if meta.Number != number {
-		t.Errorf("Expecting %d, got %d", number, meta.Number)
+}
+
+func TestParseAWebpInfoFrames(t *testing.T) {
+	frameCount, frameInfo, err := parseAWebpInfoFrames(AWEBP_INFO_DUMMY)
+	var expectedFrameCount uint32 = 8
+	expectedFrameInfo1 := MakeAWebpFrameInfo(
+		1, 640, 640, false, 0, 0, 40*time.Millisecond, false)
+	expectedFrameInfo2 := MakeAWebpFrameInfo(
+		2, 640, 577, true, 0, 28, 40*time.Millisecond, true)
+	expectedFrameInfo3 := MakeAWebpFrameInfo(
+		3, 640, 574, true, 0, 28, 80*time.Millisecond, true)
+
+	if frameCount != expectedFrameCount {
+		t.Errorf("Expecting %d got %d", frameCount, expectedFrameCount)
 	}
-	if meta.Width != width {
-		t.Errorf("Expecting %d, got %d", width, meta.Width)
+	if frameInfo[0] != expectedFrameInfo1 {
+		t.Errorf("Expecting %v got %v", frameInfo[0], expectedFrameInfo1)
 	}
-	if meta.Height != height {
-		t.Errorf("Expecting %d, got %d", height, meta.Height)
+	if frameInfo[1] != expectedFrameInfo2 {
+		t.Errorf("Expecting %v got %v", frameInfo[0], expectedFrameInfo2)
 	}
-	if meta.Alpha != alpha {
-		t.Errorf("Expecting %t, got %t", alpha, meta.Alpha)
+	if frameInfo[2] != expectedFrameInfo3 {
+		t.Errorf("Expecting %v got %v", frameInfo[0], expectedFrameInfo3)
 	}
-	if meta.XOffset != xOffset {
-		t.Errorf("Expecting %d, got %d", xOffset, meta.XOffset)
-	}
-	if meta.YOffset != yOffset {
-		t.Errorf("Expecting %d, got %d", yOffset, meta.YOffset)
-	}
-	if meta.Duration != duration {
-		t.Errorf("Expecting %d, got %d", duration, meta.Duration)
-	}
-	if meta.Blend != blend {
-		t.Errorf("Expecting %t, got %t", blend, meta.Blend)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
 	}
 }

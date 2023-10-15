@@ -39,65 +39,81 @@ func MakeAWebpInfo(
 }
 
 func ParseAWebpInfo(info string) (AWebpInfo, error) {
-	var lines []string
-	for _, l := range strings.Split(info, "\n") {
-		if l != "" {
-			lines = append(lines, l)
-		}
+	if strings.Contains(info, "No features present.") {
+		return AWebpInfo{}, makeParsingError("Not an animated WEBP", info)
 	}
 
-	canvasSizePattern := regexp.MustCompile(`^Canvas size\s*:\s*(\d+) x (\d+)$`)
-	canvasSizeMatches := canvasSizePattern.FindStringSubmatch(lines[0])
-	if len(canvasSizeMatches) != 3 {
-		return AWebpInfo{}, makeParsingError("Failed parsing width and height", lines[0])
-	}
-	width, err := strconv.ParseUint(canvasSizeMatches[1], 10, 32)
+	width, height, err := parseAWebpInfoCanvasSize(info)
 	if err != nil {
-		return AWebpInfo{}, makeParsingError("Failed parsing width", lines[0])
+		return AWebpInfo{}, err
 	}
-	height, err := strconv.ParseUint(canvasSizeMatches[2], 10, 32)
+	backgroundColor, err := parseAWebpInfoBackgroundColor(info)
 	if err != nil {
-		return AWebpInfo{}, makeParsingError("Failed parsing height", lines[0])
+		return AWebpInfo{}, err
+	}
+	frameCount, frameInfos, err := parseAWebpInfoFrames(info)
+	if err != nil {
+		return AWebpInfo{}, err
 	}
 
-	backgroundColorPattern := regexp.MustCompile(`^Background color\s*:\s*(0x[\dA-F]{8})`)
-	backgroundColorMatches := backgroundColorPattern.FindStringSubmatch(lines[2])
-	if len(backgroundColorMatches) != 2 {
-		return AWebpInfo{}, makeParsingError("Failed parsing background color", lines[2])
+	return MakeAWebpInfo(
+		width,
+		height,
+		backgroundColor,
+		frameCount,
+		frameInfos,
+	), nil
+}
+
+func parseAWebpInfoCanvasSize(info string) (uint32, uint32, error) {
+	pattern := regexp.MustCompile(`(?m)^Canvas size: (\d+) x (\d+)$`)
+	matches := pattern.FindStringSubmatch(info)
+
+	width, err := strconv.ParseUint(matches[1], 10, 32)
+	if err != nil {
+		return 0, 0, makeParsingError("Failed parsing width", info)
 	}
-	backgroundColor, ok := parseHexColor(backgroundColorMatches[1])
+	height, err := strconv.ParseUint(matches[2], 10, 32)
+	if err != nil {
+		return 0, 0, makeParsingError("Failed parsing height", info)
+	}
+
+	return uint32(width), uint32(height), nil
+}
+
+func parseAWebpInfoBackgroundColor(info string) (canvas.Color, error) {
+	pattern := regexp.MustCompile(`(?m)^Background color\s*:\s*(0x[\dA-F]{8})`)
+	matches := pattern.FindStringSubmatch(info)
+	hex, ok := parseHexColor(matches[1])
 	if !ok {
-		return AWebpInfo{}, makeParsingError("Failed parsing background color", lines[2])
+		return canvas.Color{}, makeParsingError("Failed parsing background color", info)
 	}
 
-	frameCountPattern := regexp.MustCompile(`Number of frames\s*:\s*(\d+)`)
-	frameCountMatches := frameCountPattern.FindStringSubmatch(lines[3])
-	if len(frameCountMatches) != 2 {
-		return AWebpInfo{}, makeParsingError("Failed parsing frame count", lines[3])
-	}
-	frameCount, err := strconv.ParseUint(frameCountMatches[1], 10, 32)
+	return hex, nil
+}
+
+func parseAWebpInfoFrames(info string) (uint32, []AWebpFrameInfo, error) {
+	pattern := regexp.MustCompile(`(?m)^Number of frames: (\d+)`)
+	matches := pattern.FindStringSubmatch(info)
+	frameCount, err := strconv.ParseUint(matches[1], 10, 32)
 	if err != nil {
-		return AWebpInfo{}, makeParsingError("Failed parsing frame count", lines[3])
+		return 0, []AWebpFrameInfo{}, makeParsingError("Failed parsing frame count", info)
 	}
 
-	frameInfoLines := lines[5:]
-	frameInfos := make([]AWebpFrameInfo, 0, len(frameInfoLines))
-	for _, fil := range frameInfoLines {
-		fi, err := ParseAWebpFrameInfo(fil)
+	lines := strings.Split(info, "\n")
+
+	frameInfoLines := lines[5 : 5+frameCount]
+	var frameInfos []AWebpFrameInfo
+	for _, l := range frameInfoLines {
+		fi, err := parseAWebpFrameInfo(l)
 		if err != nil {
-			return AWebpInfo{}, makeErrorSub("Failed parsing frame info line", fil, err)
+			return 0, []AWebpFrameInfo{}, makeParsingError("Failed parsing frame info", l)
 		}
 
 		frameInfos = append(frameInfos, fi)
 	}
 
-	return MakeAWebpInfo(
-		uint32(width),
-		uint32(height),
-		backgroundColor,
-		uint32(frameCount),
-		frameInfos,
-	), nil
+	return uint32(frameCount), frameInfos, nil
 }
 
 func parseHexColor(s string) (canvas.Color, bool) {
@@ -148,21 +164,21 @@ func MakeAWebpFrameInfo(
 	}
 }
 
-func ParseAWebpFrameInfo(line string) (AWebpFrameInfo, error) {
+func parseAWebpFrameInfo(line string) (AWebpFrameInfo, error) {
 	fields := strings.Fields(line)
 
 	number, err := strconv.ParseUint(regexp.MustCompile(`\d+`).FindString(fields[0]), 10, 32)
 	if err != nil {
-		return AWebpFrameInfo{}, makeParsingError("Failed parsing frame number", fields[0])
+		return AWebpFrameInfo{}, makeParsingError("Failed parsing frame number", line)
 	}
 
 	width, err := strconv.ParseUint(fields[1], 10, 32)
 	if err != nil {
-		return AWebpFrameInfo{}, makeParsingError("Failed parsing width", fields[1])
+		return AWebpFrameInfo{}, makeParsingError("Failed parsing width", line)
 	}
 	height, err := strconv.ParseUint(fields[2], 10, 32)
 	if err != nil {
-		return AWebpFrameInfo{}, makeParsingError("Failed parsing height", fields[2])
+		return AWebpFrameInfo{}, makeParsingError("Failed parsing height", line)
 	}
 
 	var alpha bool
@@ -172,21 +188,21 @@ func ParseAWebpFrameInfo(line string) (AWebpFrameInfo, error) {
 	case "no":
 		alpha = false
 	default:
-		return AWebpFrameInfo{}, makeParsingError("Failed parsing alpha", fields[3])
+		return AWebpFrameInfo{}, makeParsingError("Failed parsing alpha", line)
 	}
 
 	xOffset, err := strconv.ParseUint(fields[4], 10, 32)
 	if err != nil {
-		return AWebpFrameInfo{}, makeParsingError("Failed parsing x offset", fields[4])
+		return AWebpFrameInfo{}, makeParsingError("Failed parsing x offset", line)
 	}
 	yOffset, err := strconv.ParseUint(fields[5], 10, 32)
 	if err != nil {
-		return AWebpFrameInfo{}, makeParsingError("Failed parsing y offset", fields[5])
+		return AWebpFrameInfo{}, makeParsingError("Failed parsing y offset", line)
 	}
 
 	durationMs, err := strconv.ParseInt(fields[6], 10, 64)
 	if err != nil {
-		return AWebpFrameInfo{}, makeParsingError("Failed parsing duration", fields[6])
+		return AWebpFrameInfo{}, makeParsingError("Failed parsing duration", line)
 	}
 	duration := time.Duration(durationMs * int64(time.Millisecond))
 
@@ -218,11 +234,6 @@ type ParsingError struct {
 
 func makeParsingError(reason string, input string) *ParsingError {
 	e := ParsingError{reason, input, nil}
-	return &e
-}
-
-func makeErrorSub(reason string, input string, subError error) *ParsingError {
-	e := ParsingError{reason, input, subError}
 	return &e
 }
 
